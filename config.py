@@ -1,20 +1,15 @@
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from typing import Optional
 
-from pydantic_settings import BaseSettings
-
-
 class Settings(BaseSettings):
-    MONGO_URL: str
-    JWT_SECRET: str
-    EMAIL: str
-    EMAIL_PASS: str
-    BASE_URL: str
+    mongo_uri: str
+    secret_key: str
+    algorithm: str = "HS256"
+    email_pass: str
+    email_address: str = "dasariyaswanthsribalachandra@gmail.com"
+    base_url: str = "https://nexspacefrontend-dsfjgrc4auccheeu.centralindia-01.azurewebsites.net/"
 
     class Config:
         env_file = ".env"
-
-
-settings = Settings()
 
 settings = Settings()

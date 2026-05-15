@@ -80,6 +80,11 @@ BASE_URL = os.getenv(
     "http://localhost:8000"
 )
 
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173"
+)
+
 EMAIL = os.getenv(
     "EMAIL"
 )
@@ -154,7 +159,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://nexspacefrontend.azurewebsites.net",
+        FRONTEND_URL,
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -694,192 +699,6 @@ async def reset_password(
     }
 
 # ======================================================
-# CREATE LINK
-# ======================================================
-
-@app.post(
-    "/api/links",
-    status_code=201,
-)
-async def create_link(
-    link_data: LinkCreate,
-    current_user=Depends(
-        get_current_user
-    ),
-):
-
-    user_id = str(
-        current_user["_id"]
-    )
-
-    link_doc = {
-        "user_id": user_id,
-        "title": link_data.title,
-        "url": link_data.url,
-        "category":
-        link_data.category,
-        "tags": link_data.tags,
-        "description":
-        link_data.description,
-        "color": link_data.color,
-        "short_code":
-        generate_short_code(),
-        "created_at":
-        datetime.utcnow(),
-        "updated_at":
-        datetime.utcnow(),
-    }
-
-    result = (
-        links_collection.insert_one(
-            link_doc
-        )
-    )
-
-    link_doc["_id"] = str(
-        result.inserted_id
-    )
-
-    return link_doc
-
-# ======================================================
-# GET LINKS
-# ======================================================
-
-@app.get("/api/links")
-async def get_links(
-    current_user=Depends(
-        get_current_user
-    ),
-):
-
-    user_id = str(
-        current_user["_id"]
-    )
-
-    links = list(
-        links_collection.find(
-            {
-                "user_id": user_id
-            }
-        ).sort(
-            "created_at",
-            -1
-        )
-    )
-
-    for link in links:
-        link["_id"] = str(
-            link["_id"]
-        )
-
-    return links
-
-# ======================================================
-# UPDATE LINK
-# ======================================================
-
-@app.put("/api/links/{link_id}")
-async def update_link(
-    link_id: str,
-    link_data: LinkUpdate,
-    current_user=Depends(
-        get_current_user
-    ),
-):
-
-    user_id = str(
-        current_user["_id"]
-    )
-
-    existing_link = (
-        links_collection.find_one(
-            {
-                "_id": ObjectId(link_id),
-                "user_id": user_id,
-            }
-        )
-    )
-
-    if not existing_link:
-        raise HTTPException(
-            status_code=404,
-            detail="Link not found",
-        )
-
-    update_data = {
-        "title": link_data.title,
-        "url": link_data.url,
-        "category": link_data.category,
-        "tags": link_data.tags,
-        "description": link_data.description,
-        "color": link_data.color,
-        "updated_at": datetime.utcnow(),
-    }
-
-    links_collection.update_one(
-        {
-            "_id": ObjectId(link_id)
-        },
-        {
-            "$set": update_data
-        }
-    )
-
-    updated_link = (
-        links_collection.find_one(
-            {
-                "_id": ObjectId(link_id)
-            }
-        )
-    )
-
-    updated_link["_id"] = str(
-        updated_link["_id"]
-    )
-
-    return updated_link
-
-# ======================================================
-# DELETE LINK
-# ======================================================
-
-@app.delete(
-    "/api/links/{link_id}",
-    status_code=204,
-)
-async def delete_link(
-    link_id: str,
-    current_user=Depends(
-        get_current_user
-    ),
-):
-
-    user_id = str(
-        current_user["_id"]
-    )
-
-    result = (
-        links_collection.delete_one(
-            {
-                "_id":
-                ObjectId(link_id),
-
-                "user_id":
-                user_id,
-            }
-        )
-    )
-
-    if result.deleted_count == 0:
-        raise HTTPException(
-            status_code=404,
-            detail="Link not found",
-        )
-
-    return None
-
-# ======================================================
 # HEALTH
 # ======================================================
 
@@ -904,14 +723,8 @@ async def root():
         "base_url":
         BASE_URL,
 
-        "login_url":
-        LOGIN_URL,
-
-        "register_url":
-        REGISTER_URL,
-
-        "links_url":
-        LINKS_BASE,
+        "frontend_url":
+        FRONTEND_URL,
     }
 
 # ======================================================
