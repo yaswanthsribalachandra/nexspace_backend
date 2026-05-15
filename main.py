@@ -23,10 +23,13 @@ from bson import ObjectId
 import string
 import random
 import smtplib
+import os
 
 from random import randint
 
 from email.mime.text import MIMEText
+
+from dotenv import load_dotenv
 
 from database import (
     users_collection,
@@ -55,22 +58,35 @@ from auth import (
 )
 
 # ======================================================
+# LOAD ENV
+# ======================================================
+
+load_dotenv()
+
+# ======================================================
 # APP
 # ======================================================
 
 app = FastAPI(
-    title="LinkManager API"
+    title="NexSpace API"
 )
 
 # ======================================================
-# API CONFIG
+# ENV VARIABLES
 # ======================================================
 
-HOST = "192.168.0.14"
+BASE_URL = os.getenv(
+    "BASE_URL",
+    "http://localhost:8000"
+)
 
-PORT = 8000
+EMAIL = os.getenv(
+    "EMAIL"
+)
 
-BASE_URL = f"http://{HOST}:{PORT}"
+EMAIL_PASS = os.getenv(
+    "EMAIL_PASS"
+)
 
 # ======================================================
 # AUTH URLS
@@ -131,24 +147,15 @@ HEALTH_URL = (
 ROOT_URL = BASE_URL
 
 # ======================================================
-# EMAIL CONFIG
-# ======================================================
-
-EMAIL = (
-    "dasariyaswanthsribalachandra@gmail.com"
-)
-
-EMAIL_PASS = (
-    "dtqv vuxm jrde zxjp"
-)
-
-# ======================================================
 # CORS
 # ======================================================
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://nexspacefrontend.azurewebsites.net",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -412,7 +419,6 @@ async def login_with_otp(
 
     otp = data.otp
 
-    # CHECK USER
     user = users_collection.find_one(
         {
             "email": email
@@ -425,7 +431,6 @@ async def login_with_otp(
             detail="User not found",
         )
 
-    # CHECK OTP
     otp_data = otp_collection.find_one(
         {
             "email": email
@@ -438,14 +443,12 @@ async def login_with_otp(
             detail="OTP not found",
         )
 
-    # INVALID OTP
     if otp_data["otp"] != otp:
         raise HTTPException(
             status_code=400,
             detail="Invalid OTP",
         )
 
-    # OTP EXPIRED
     if (
         otp_data["expiry"]
         < datetime.utcnow()
@@ -455,14 +458,12 @@ async def login_with_otp(
             detail="OTP expired",
         )
 
-    # DELETE OTP
     otp_collection.delete_one(
         {
             "email": email
         }
     )
 
-    # CREATE TOKEN
     user_id = str(user["_id"])
 
     access_token = (
@@ -515,7 +516,6 @@ async def send_otp(
 
     email = data.email
 
-    # GENERATE OTP
     otp = str(
         randint(100000, 999999)
     )
@@ -525,7 +525,6 @@ async def send_otp(
         + timedelta(minutes=5)
     )
 
-    # SAVE OTP
     otp_collection.update_one(
         {"email": email},
         {
@@ -537,7 +536,6 @@ async def send_otp(
         upsert=True,
     )
 
-    # SEND EMAIL
     send_otp_email(
         email,
         otp
@@ -569,21 +567,18 @@ async def verify_otp(
         )
     )
 
-    # OTP NOT FOUND
     if not otp_data:
         raise HTTPException(
             status_code=400,
             detail="OTP not found",
         )
 
-    # INVALID OTP
     if otp_data["otp"] != otp:
         raise HTTPException(
             status_code=400,
             detail="Invalid OTP",
         )
 
-    # OTP EXPIRED
     if (
         otp_data["expiry"]
         < datetime.utcnow()
@@ -904,7 +899,7 @@ async def root():
 
     return {
         "message":
-        "LinkManager API Running",
+        "NexSpace API Running",
 
         "base_url":
         BASE_URL,
@@ -930,6 +925,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=PORT,
+        port=8000,
         reload=True,
     )
