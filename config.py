@@ -1,14 +1,20 @@
 from pydantic import BaseSettings
 from typing import Optional
 
+from pydantic_settings import BaseSettings
+
+
 class Settings(BaseSettings):
-    mongo_uri: str
-    secret_key: str
-    algorithm: str = "HS256"
-    email_pass: str
-    email_address: str = "yaswanth.dev@gmail.com"
-    
+    MONGO_URL: str
+    JWT_SECRET: str
+    EMAIL: str
+    EMAIL_PASS: str
+    BASE_URL: str
+
     class Config:
         env_file = ".env"
+
+
+settings = Settings()
 
 settings = Settings()
