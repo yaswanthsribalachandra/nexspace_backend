@@ -402,7 +402,6 @@ async def register(
 # ======================================================
 # LOGIN
 # ======================================================
-
 @app.post(
     "/api/auth/login",
     response_model=TokenResponse,
@@ -417,49 +416,57 @@ async def login(
             f"Login request for {user_data.email}"
         )
 
-        user = (
-            users_collection.find_one(
-                {
-                    "email":
-                    user_data.email
-                }
-            )
+        user = users_collection.find_one(
+            {
+                "email": user_data.email
+            }
         )
 
+        # USER NOT FOUND
         if not user:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid credentials",
+                detail="Invalid email or password"
             )
 
-        valid_password = (
-            verify_password(
+        # VERIFY PASSWORD
+        try:
+
+            valid_password = verify_password(
                 user_data.password,
-                user["password"],
+                user["password"]
             )
-        )
+
+        except Exception as password_error:
+
+            logger.error(
+                f"PASSWORD VERIFY ERROR: {str(password_error)}"
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail="Password verification failed"
+            )
 
         if not valid_password:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid credentials",
+                detail="Invalid email or password"
             )
 
         user_id = str(user["_id"])
 
-        access_token = (
-            create_access_token(
-                data={"sub": user_id}
-            )
+        access_token = create_access_token(
+            data={"sub": user_id}
         )
 
         return {
-            "access_token":
-            access_token,
-
-            "token_type":
-            "bearer",
+            "access_token": access_token,
+            "token_type": "bearer"
         }
+
+    except HTTPException:
+        raise
 
     except Exception as e:
 
@@ -469,9 +476,8 @@ async def login(
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail="Internal server error"
         )
-
 # ======================================================
 # LOGIN OTP
 # ======================================================
