@@ -98,7 +98,7 @@ FRONTEND_URL = os.getenv(
 )
 
 EMAIL = os.getenv(
-    "EMAIL"
+    "EMAIL_ADDRESS"
 )
 
 EMAIL_PASS = os.getenv(
