@@ -3,10 +3,10 @@ uvicorn
 gunicorn
 python-dotenv
 pymongo
+dnspython
 passlib[bcrypt]
 bcrypt
 python-jose[cryptography]
 email-validator
 python-multipart
 pydantic-settings
-dnspython
