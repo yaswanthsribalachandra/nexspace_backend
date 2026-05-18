@@ -24,6 +24,7 @@ import string
 import random
 import smtplib
 import os
+import logging
 
 from random import randint
 
@@ -64,6 +65,17 @@ from auth import (
 load_dotenv()
 
 # ======================================================
+# LOGGING
+# ======================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+logger = logging.getLogger(__name__)
+
+# ======================================================
 # APP
 # ======================================================
 
@@ -82,7 +94,7 @@ BASE_URL = os.getenv(
 
 FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
-    "http://localhost:5173"
+    "https://webappfrontend-fmheb9bsfabwbre9.southeastasia-01.azurewebsites.net"
 )
 
 EMAIL = os.getenv(
@@ -159,6 +171,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "https://webappfrontend-fmheb9bsfabwbre9.southeastasia-01.azurewebsites.net",
         FRONTEND_URL,
     ],
     allow_credentials=True,
@@ -177,11 +190,13 @@ def send_otp_email(
     otp
 ):
 
-    subject = (
-        "NexSpace Verification OTP"
-    )
+    try:
 
-    body = f"""
+        subject = (
+            "NexSpace Verification OTP"
+        )
+
+        body = f"""
 Your OTP is:
 
 {otp}
@@ -191,33 +206,48 @@ This OTP expires in 5 minutes.
 Do not share this OTP with anyone.
 """
 
-    msg = MIMEText(body)
+        msg = MIMEText(body)
 
-    msg["Subject"] = subject
+        msg["Subject"] = subject
 
-    msg["From"] = EMAIL
+        msg["From"] = EMAIL
 
-    msg["To"] = receiver_email
+        msg["To"] = receiver_email
 
-    server = smtplib.SMTP(
-        "smtp.gmail.com",
-        587
-    )
+        server = smtplib.SMTP(
+            "smtp.gmail.com",
+            587
+        )
 
-    server.starttls()
+        server.starttls()
 
-    server.login(
-        EMAIL,
-        EMAIL_PASS
-    )
+        server.login(
+            EMAIL,
+            EMAIL_PASS
+        )
 
-    server.sendmail(
-        EMAIL,
-        receiver_email,
-        msg.as_string()
-    )
+        server.sendmail(
+            EMAIL,
+            receiver_email,
+            msg.as_string()
+        )
 
-    server.quit()
+        server.quit()
+
+        logger.info(
+            f"OTP sent successfully to {receiver_email}"
+        )
+
+    except Exception as e:
+
+        logger.error(
+            f"Failed to send OTP email: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send OTP email"
+        )
 
 # ======================================================
 # AUTH HELPER
@@ -293,6 +323,10 @@ async def register(
     user_data: UserRegister
 ):
 
+    logger.info(
+        f"Register request for {user_data.email}"
+    )
+
     existing_user = (
         users_collection.find_one(
             {
@@ -344,6 +378,10 @@ async def register(
         )
     )
 
+    logger.info(
+        f"User registered successfully: {user_data.email}"
+    )
+
     return {
         "access_token":
         access_token,
@@ -363,6 +401,10 @@ async def register(
 async def login(
     user_data: UserLogin
 ):
+
+    logger.info(
+        f"Login request for {user_data.email}"
+    )
 
     user = (
         users_collection.find_one(
@@ -398,6 +440,10 @@ async def login(
         create_access_token(
             data={"sub": user_id}
         )
+    )
+
+    logger.info(
+        f"User logged in successfully: {user_data.email}"
     )
 
     return {
@@ -475,6 +521,10 @@ async def login_with_otp(
         create_access_token(
             data={"sub": user_id}
         )
+    )
+
+    logger.info(
+        f"OTP login successful for {email}"
     )
 
     return {
@@ -593,6 +643,10 @@ async def verify_otp(
             detail="OTP expired",
         )
 
+    logger.info(
+        f"OTP verified successfully for {email}"
+    )
+
     return {
         "message":
         "OTP verified successfully"
@@ -693,6 +747,10 @@ async def reset_password(
         }
     )
 
+    logger.info(
+        f"Password reset successful for {email}"
+    )
+
     return {
         "message":
         "Password reset successful"
@@ -705,6 +763,10 @@ async def reset_password(
 @app.get("/health")
 async def health_check():
 
+    logger.info(
+        "Health check endpoint accessed"
+    )
+
     return {
         "status": "ok"
     }
@@ -715,6 +777,10 @@ async def health_check():
 
 @app.get("/")
 async def root():
+
+    logger.info(
+        "Root endpoint accessed"
+    )
 
     return {
         "message":
@@ -735,9 +801,19 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    port = int(
+        os.environ.get(
+            "PORT",
+            8000
+        )
+    )
+
+    logger.info(
+        f"Starting server on port {port}"
+    )
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
     )
