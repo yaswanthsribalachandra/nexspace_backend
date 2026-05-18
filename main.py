@@ -106,64 +106,6 @@ EMAIL_PASS = os.getenv(
 )
 
 # ======================================================
-# AUTH URLS
-# ======================================================
-
-AUTH_BASE = f"{BASE_URL}/api/auth"
-
-REGISTER_URL = f"{AUTH_BASE}/register"
-
-LOGIN_URL = f"{AUTH_BASE}/login"
-
-LOGIN_OTP_URL = (
-    f"{AUTH_BASE}/login-otp"
-)
-
-ME_URL = f"{AUTH_BASE}/me"
-
-SEND_OTP_URL = (
-    f"{AUTH_BASE}/send-otp"
-)
-
-VERIFY_OTP_URL = (
-    f"{AUTH_BASE}/verify-otp"
-)
-
-RESET_PASSWORD_URL = (
-    f"{AUTH_BASE}/reset-password"
-)
-
-# ======================================================
-# LINKS URLS
-# ======================================================
-
-LINKS_BASE = (
-    f"{BASE_URL}/api/links"
-)
-
-CREATE_LINK_URL = LINKS_BASE
-
-GET_LINKS_URL = LINKS_BASE
-
-UPDATE_LINK_URL = (
-    f"{LINKS_BASE}/{{link_id}}"
-)
-
-DELETE_LINK_URL = (
-    f"{LINKS_BASE}/{{link_id}}"
-)
-
-# ======================================================
-# OTHER URLS
-# ======================================================
-
-HEALTH_URL = (
-    f"{BASE_URL}/health"
-)
-
-ROOT_URL = BASE_URL
-
-# ======================================================
 # CORS
 # ======================================================
 
@@ -171,13 +113,23 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        FRONTEND_URL,
         "https://webappfrontend-fmheb9bsfabwbre9.southeastasia-01.azurewebsites.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# ======================================================
+# PREFLIGHT OPTIONS
+# ======================================================
+
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(
+    rest_of_path: str
+):
+    return {"message": "OK"}
 
 security = HTTPBearer()
 
@@ -213,9 +165,7 @@ Do not share this OTP with anyone.
         msg = MIMEText(body)
 
         msg["Subject"] = subject
-
         msg["From"] = EMAIL
-
         msg["To"] = receiver_email
 
         server = smtplib.SMTP(
@@ -250,7 +200,7 @@ Do not share this OTP with anyone.
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail="Failed to send email"
         )
 
 # ======================================================
@@ -388,6 +338,9 @@ async def register(
             "bearer",
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
 
         logger.error(
@@ -396,12 +349,13 @@ async def register(
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail="Internal server error"
         )
 
 # ======================================================
 # LOGIN
 # ======================================================
+
 @app.post(
     "/api/auth/login",
     response_model=TokenResponse,
@@ -422,14 +376,12 @@ async def login(
             }
         )
 
-        # USER NOT FOUND
         if not user:
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password"
             )
 
-        # VERIFY PASSWORD
         try:
 
             valid_password = verify_password(
@@ -478,6 +430,7 @@ async def login(
             status_code=500,
             detail="Internal server error"
         )
+
 # ======================================================
 # LOGIN OTP
 # ======================================================
@@ -490,70 +443,80 @@ async def login_with_otp(
     data: OTPLoginRequest
 ):
 
-    email = data.email
+    try:
 
-    otp = data.otp
+        email = data.email
+        otp = data.otp
 
-    user = users_collection.find_one(
-        {
-            "email": email
-        }
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found",
+        user = users_collection.find_one(
+            {
+                "email": email
+            }
         )
 
-    otp_data = otp_collection.find_one(
-        {
-            "email": email
-        }
-    )
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found",
+            )
 
-    if not otp_data:
-        raise HTTPException(
-            status_code=400,
-            detail="OTP not found",
+        otp_data = otp_collection.find_one(
+            {
+                "email": email
+            }
         )
 
-    if otp_data["otp"] != otp:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid OTP",
+        if not otp_data:
+            raise HTTPException(
+                status_code=400,
+                detail="OTP not found",
+            )
+
+        if otp_data["otp"] != otp:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid OTP",
+            )
+
+        if otp_data["expiry"] < datetime.utcnow():
+            raise HTTPException(
+                status_code=400,
+                detail="OTP expired",
+            )
+
+        otp_collection.delete_one(
+            {
+                "email": email
+            }
         )
 
-    if (
-        otp_data["expiry"]
-        < datetime.utcnow()
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="OTP expired",
-        )
+        user_id = str(user["_id"])
 
-    otp_collection.delete_one(
-        {
-            "email": email
-        }
-    )
-
-    user_id = str(user["_id"])
-
-    access_token = (
-        create_access_token(
+        access_token = create_access_token(
             data={"sub": user_id}
         )
-    )
 
-    return {
-        "access_token":
-        access_token,
+        return {
+            "access_token":
+            access_token,
 
-        "token_type":
-        "bearer",
-    }
+            "token_type":
+            "bearer",
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.error(
+            f"LOGIN OTP ERROR: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 # ======================================================
 # CURRENT USER
@@ -589,37 +552,53 @@ async def send_otp(
     data: SendOTPRequest
 ):
 
-    email = data.email
+    try:
 
-    otp = str(
-        randint(100000, 999999)
-    )
+        email = data.email
 
-    expiry = (
-        datetime.utcnow()
-        + timedelta(minutes=5)
-    )
+        otp = str(
+            randint(100000, 999999)
+        )
 
-    otp_collection.update_one(
-        {"email": email},
-        {
-            "$set": {
-                "otp": otp,
-                "expiry": expiry,
-            }
-        },
-        upsert=True,
-    )
+        expiry = (
+            datetime.utcnow()
+            + timedelta(minutes=5)
+        )
 
-    send_otp_email(
-        email,
-        otp
-    )
+        otp_collection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "otp": otp,
+                    "expiry": expiry,
+                }
+            },
+            upsert=True,
+        )
 
-    return {
-        "message":
-        "OTP sent successfully"
-    }
+        send_otp_email(
+            email,
+            otp
+        )
+
+        return {
+            "message":
+            "OTP sent successfully"
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.error(
+            f"SEND OTP ERROR: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 # ======================================================
 # VERIFY OTP
@@ -630,143 +609,164 @@ async def verify_otp(
     data: VerifyOTPRequest
 ):
 
-    email = data.email
+    try:
 
-    otp = data.otp
+        email = data.email
+        otp = data.otp
 
-    otp_data = (
-        otp_collection.find_one(
+        otp_data = otp_collection.find_one(
             {
                 "email": email
             }
         )
-    )
 
-    if not otp_data:
-        raise HTTPException(
-            status_code=400,
-            detail="OTP not found",
+        if not otp_data:
+            raise HTTPException(
+                status_code=400,
+                detail="OTP not found",
+            )
+
+        if otp_data["otp"] != otp:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid OTP",
+            )
+
+        if otp_data["expiry"] < datetime.utcnow():
+            raise HTTPException(
+                status_code=400,
+                detail="OTP expired",
+            )
+
+        return {
+            "message":
+            "OTP verified successfully"
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.error(
+            f"VERIFY OTP ERROR: {str(e)}"
         )
 
-    if otp_data["otp"] != otp:
         raise HTTPException(
-            status_code=400,
-            detail="Invalid OTP",
+            status_code=500,
+            detail="Internal server error"
         )
-
-    if (
-        otp_data["expiry"]
-        < datetime.utcnow()
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="OTP expired",
-        )
-
-    return {
-        "message":
-        "OTP verified successfully"
-    }
 
 # ======================================================
 # RESET PASSWORD
 # ======================================================
 
-@app.post(
-    "/api/auth/reset-password"
-)
+@app.post("/api/auth/reset-password")
 async def reset_password(
     data: ResetPasswordRequest
 ):
 
-    email = data.email
+    try:
 
-    otp = data.otp
+        email = data.email
+        otp = data.otp
+        password = data.password
 
-    password = data.password
-
-    user = (
-        users_collection.find_one(
+        user = users_collection.find_one(
             {
                 "email": email
             }
         )
-    )
 
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found",
-        )
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found"
+            )
 
-    otp_data = (
-        otp_collection.find_one(
+        otp_data = otp_collection.find_one(
             {
                 "email": email
             }
         )
-    )
 
-    if not otp_data:
-        raise HTTPException(
-            status_code=400,
-            detail="OTP not found",
+        if not otp_data:
+            raise HTTPException(
+                status_code=400,
+                detail="OTP not found"
+            )
+
+        if otp_data["otp"] != otp:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid OTP"
+            )
+
+        if otp_data["expiry"] < datetime.utcnow():
+            raise HTTPException(
+                status_code=400,
+                detail="OTP expired"
+            )
+
+        try:
+
+            old_password_same = verify_password(
+                password,
+                user["password"]
+            )
+
+        except Exception as verify_error:
+
+            logger.error(
+                f"VERIFY PASSWORD ERROR: {str(verify_error)}"
+            )
+
+            old_password_same = False
+
+        if old_password_same:
+            raise HTTPException(
+                status_code=400,
+                detail="New password cannot be same as old password"
+            )
+
+        hashed_password = hash_password(
+            password
         )
 
-    if otp_data["otp"] != otp:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid OTP",
-        )
-
-    if (
-        otp_data["expiry"]
-        < datetime.utcnow()
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="OTP expired",
-        )
-
-    old_password_same = (
-        verify_password(
-            password,
-            user["password"],
-        )
-    )
-
-    if old_password_same:
-        raise HTTPException(
-            status_code=400,
-            detail="New password cannot be same as old password",
-        )
-
-    hashed_password = (
-        hash_password(password)
-    )
-
-    users_collection.update_one(
-        {
-            "email": email
-        },
-        {
-            "$set": {
-                "password":
-                hashed_password
+        users_collection.update_one(
+            {
+                "email": email
+            },
+            {
+                "$set": {
+                    "password": hashed_password
+                }
             }
-        },
-    )
+        )
 
-    otp_collection.delete_one(
-        {
-            "email": email
+        otp_collection.delete_one(
+            {
+                "email": email
+            }
+        )
+
+        return {
+            "message": "Password reset successful"
         }
-    )
 
-    return {
-        "message":
-        "Password reset successful"
-    }
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.error(
+            f"RESET PASSWORD ERROR: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 # ======================================================
 # CREATE LINK
@@ -783,39 +783,52 @@ async def create_link(
     ),
 ):
 
-    user_id = str(
-        current_user["_id"]
-    )
+    try:
 
-    link_doc = {
-        "user_id": user_id,
-        "title": link_data.title,
-        "url": link_data.url,
-        "category":
-        link_data.category,
-        "tags": link_data.tags,
-        "description":
-        link_data.description,
-        "color": link_data.color,
-        "short_code":
-        generate_short_code(),
-        "created_at":
-        datetime.utcnow(),
-        "updated_at":
-        datetime.utcnow(),
-    }
-
-    result = (
-        links_collection.insert_one(
-            link_doc
+        user_id = str(
+            current_user["_id"]
         )
-    )
 
-    link_doc["_id"] = str(
-        result.inserted_id
-    )
+        link_doc = {
+            "user_id": user_id,
+            "title": link_data.title,
+            "url": link_data.url,
+            "category":
+            link_data.category,
+            "tags": link_data.tags,
+            "description":
+            link_data.description,
+            "color": link_data.color,
+            "short_code":
+            generate_short_code(),
+            "created_at":
+            datetime.utcnow(),
+            "updated_at":
+            datetime.utcnow(),
+        }
 
-    return link_doc
+        result = (
+            links_collection.insert_one(
+                link_doc
+            )
+        )
+
+        link_doc["_id"] = str(
+            result.inserted_id
+        )
+
+        return link_doc
+
+    except Exception as e:
+
+        logger.error(
+            f"CREATE LINK ERROR: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 # ======================================================
 # GET LINKS
@@ -828,27 +841,40 @@ async def get_links(
     ),
 ):
 
-    user_id = str(
-        current_user["_id"]
-    )
+    try:
 
-    links = list(
-        links_collection.find(
-            {
-                "user_id": user_id
-            }
-        ).sort(
-            "created_at",
-            -1
-        )
-    )
-
-    for link in links:
-        link["_id"] = str(
-            link["_id"]
+        user_id = str(
+            current_user["_id"]
         )
 
-    return links
+        links = list(
+            links_collection.find(
+                {
+                    "user_id": user_id
+                }
+            ).sort(
+                "created_at",
+                -1
+            )
+        )
+
+        for link in links:
+            link["_id"] = str(
+                link["_id"]
+            )
+
+        return links
+
+    except Exception as e:
+
+        logger.error(
+            f"GET LINKS ERROR: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 # ======================================================
 # UPDATE LINK
@@ -863,57 +889,73 @@ async def update_link(
     ),
 ):
 
-    user_id = str(
-        current_user["_id"]
-    )
+    try:
 
-    existing_link = (
-        links_collection.find_one(
-            {
-                "_id": ObjectId(link_id),
-                "user_id": user_id,
-            }
-        )
-    )
-
-    if not existing_link:
-        raise HTTPException(
-            status_code=404,
-            detail="Link not found",
+        user_id = str(
+            current_user["_id"]
         )
 
-    update_data = {
-        "title": link_data.title,
-        "url": link_data.url,
-        "category": link_data.category,
-        "tags": link_data.tags,
-        "description": link_data.description,
-        "color": link_data.color,
-        "updated_at": datetime.utcnow(),
-    }
+        existing_link = (
+            links_collection.find_one(
+                {
+                    "_id": ObjectId(link_id),
+                    "user_id": user_id,
+                }
+            )
+        )
 
-    links_collection.update_one(
-        {
-            "_id": ObjectId(link_id)
-        },
-        {
-            "$set": update_data
+        if not existing_link:
+            raise HTTPException(
+                status_code=404,
+                detail="Link not found",
+            )
+
+        update_data = {
+            "title": link_data.title,
+            "url": link_data.url,
+            "category": link_data.category,
+            "tags": link_data.tags,
+            "description": link_data.description,
+            "color": link_data.color,
+            "updated_at": datetime.utcnow(),
         }
-    )
 
-    updated_link = (
-        links_collection.find_one(
+        links_collection.update_one(
             {
                 "_id": ObjectId(link_id)
+            },
+            {
+                "$set": update_data
             }
         )
-    )
 
-    updated_link["_id"] = str(
-        updated_link["_id"]
-    )
+        updated_link = (
+            links_collection.find_one(
+                {
+                    "_id": ObjectId(link_id)
+                }
+            )
+        )
 
-    return updated_link
+        updated_link["_id"] = str(
+            updated_link["_id"]
+        )
+
+        return updated_link
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.error(
+            f"UPDATE LINK ERROR: {str(e)}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 # ======================================================
 # DELETE LINK
@@ -930,29 +972,45 @@ async def delete_link(
     ),
 ):
 
-    user_id = str(
-        current_user["_id"]
-    )
+    try:
 
-    result = (
-        links_collection.delete_one(
-            {
-                "_id":
-                ObjectId(link_id),
-
-                "user_id":
-                user_id,
-            }
+        user_id = str(
+            current_user["_id"]
         )
-    )
 
-    if result.deleted_count == 0:
+        result = (
+            links_collection.delete_one(
+                {
+                    "_id":
+                    ObjectId(link_id),
+
+                    "user_id":
+                    user_id,
+                }
+            )
+        )
+
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Link not found",
+            )
+
+        return None
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.error(
+            f"DELETE LINK ERROR: {str(e)}"
+        )
+
         raise HTTPException(
-            status_code=404,
-            detail="Link not found",
+            status_code=500,
+            detail="Internal server error"
         )
-
-    return None
 
 # ======================================================
 # HEALTH
