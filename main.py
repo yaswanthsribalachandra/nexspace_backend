@@ -89,7 +89,7 @@ app = FastAPI(
 
 BASE_URL = os.getenv(
     "BASE_URL",
-    "http://localhost:8000"
+    "https://yaswanth-ai-agent-2026.azurewebsites.net"
 )
 
 FRONTEND_URL = os.getenv(
@@ -171,8 +171,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://webappfrontend-fmheb9bsfabwbre9.southeastasia-01.azurewebsites.net",
         FRONTEND_URL,
+        "https://webappfrontend-fmheb9bsfabwbre9.southeastasia-01.azurewebsites.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -191,6 +191,10 @@ def send_otp_email(
 ):
 
     try:
+
+        logger.info(
+            "Starting OTP email send"
+        )
 
         subject = (
             "NexSpace Verification OTP"
@@ -241,12 +245,12 @@ Do not share this OTP with anyone.
     except Exception as e:
 
         logger.error(
-            f"Failed to send OTP email: {str(e)}"
+            f"EMAIL ERROR: {str(e)}"
         )
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to send OTP email"
+            detail=str(e)
         )
 
 # ======================================================
@@ -323,75 +327,80 @@ async def register(
     user_data: UserRegister
 ):
 
-    logger.info(
-        f"Register request for {user_data.email}"
-    )
+    try:
 
-    existing_user = (
-        users_collection.find_one(
-            {
-                "email":
-                user_data.email
-            }
+        existing_user = (
+            users_collection.find_one(
+                {
+                    "email":
+                    user_data.email
+                }
+            )
         )
-    )
 
-    if existing_user:
+        if existing_user:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered",
+            )
+
+        hashed_password = (
+            hash_password(
+                user_data.password
+            )
+        )
+
+        user_doc = {
+            "email":
+            user_data.email,
+
+            "password":
+            hashed_password,
+
+            "full_name":
+            user_data.full_name,
+
+            "created_at":
+            datetime.utcnow(),
+        }
+
+        result = (
+            users_collection.insert_one(
+                user_doc
+            )
+        )
+
+        user_id = str(
+            result.inserted_id
+        )
+
+        access_token = (
+            create_access_token(
+                data={"sub": user_id}
+            )
+        )
+
+        return {
+            "access_token":
+            access_token,
+
+            "token_type":
+            "bearer",
+        }
+
+    except Exception as e:
+
+        logger.error(
+            f"REGISTER ERROR: {str(e)}"
+        )
+
         raise HTTPException(
-            status_code=400,
-            detail="Email already registered",
+            status_code=500,
+            detail=str(e)
         )
-
-    hashed_password = (
-        hash_password(
-            user_data.password
-        )
-    )
-
-    user_doc = {
-        "email":
-        user_data.email,
-
-        "password":
-        hashed_password,
-
-        "full_name":
-        user_data.full_name,
-
-        "created_at":
-        datetime.utcnow(),
-    }
-
-    result = (
-        users_collection.insert_one(
-            user_doc
-        )
-    )
-
-    user_id = str(
-        result.inserted_id
-    )
-
-    access_token = (
-        create_access_token(
-            data={"sub": user_id}
-        )
-    )
-
-    logger.info(
-        f"User registered successfully: {user_data.email}"
-    )
-
-    return {
-        "access_token":
-        access_token,
-
-        "token_type":
-        "bearer",
-    }
 
 # ======================================================
-# LOGIN WITH PASSWORD
+# LOGIN
 # ======================================================
 
 @app.post(
@@ -402,60 +411,69 @@ async def login(
     user_data: UserLogin
 ):
 
-    logger.info(
-        f"Login request for {user_data.email}"
-    )
+    try:
 
-    user = (
-        users_collection.find_one(
-            {
-                "email":
-                user_data.email
-            }
+        logger.info(
+            f"Login request for {user_data.email}"
         )
-    )
 
-    if not user:
+        user = (
+            users_collection.find_one(
+                {
+                    "email":
+                    user_data.email
+                }
+            )
+        )
+
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid credentials",
+            )
+
+        valid_password = (
+            verify_password(
+                user_data.password,
+                user["password"],
+            )
+        )
+
+        if not valid_password:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid credentials",
+            )
+
+        user_id = str(user["_id"])
+
+        access_token = (
+            create_access_token(
+                data={"sub": user_id}
+            )
+        )
+
+        return {
+            "access_token":
+            access_token,
+
+            "token_type":
+            "bearer",
+        }
+
+    except Exception as e:
+
+        logger.error(
+            f"LOGIN ERROR: {str(e)}"
+        )
+
         raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials",
+            status_code=500,
+            detail=str(e)
         )
-
-    valid_password = (
-        verify_password(
-            user_data.password,
-            user["password"],
-        )
-    )
-
-    if not valid_password:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials",
-        )
-
-    user_id = str(user["_id"])
-
-    access_token = (
-        create_access_token(
-            data={"sub": user_id}
-        )
-    )
-
-    logger.info(
-        f"User logged in successfully: {user_data.email}"
-    )
-
-    return {
-        "access_token":
-        access_token,
-
-        "token_type":
-        "bearer",
-    }
 
 # ======================================================
-# LOGIN WITH OTP
+# LOGIN OTP
 # ======================================================
 
 @app.post(
@@ -521,10 +539,6 @@ async def login_with_otp(
         create_access_token(
             data={"sub": user_id}
         )
-    )
-
-    logger.info(
-        f"OTP login successful for {email}"
     )
 
     return {
@@ -643,10 +657,6 @@ async def verify_otp(
             detail="OTP expired",
         )
 
-    logger.info(
-        f"OTP verified successfully for {email}"
-    )
-
     return {
         "message":
         "OTP verified successfully"
@@ -747,14 +757,196 @@ async def reset_password(
         }
     )
 
-    logger.info(
-        f"Password reset successful for {email}"
-    )
-
     return {
         "message":
         "Password reset successful"
     }
+
+# ======================================================
+# CREATE LINK
+# ======================================================
+
+@app.post(
+    "/api/links",
+    status_code=201,
+)
+async def create_link(
+    link_data: LinkCreate,
+    current_user=Depends(
+        get_current_user
+    ),
+):
+
+    user_id = str(
+        current_user["_id"]
+    )
+
+    link_doc = {
+        "user_id": user_id,
+        "title": link_data.title,
+        "url": link_data.url,
+        "category":
+        link_data.category,
+        "tags": link_data.tags,
+        "description":
+        link_data.description,
+        "color": link_data.color,
+        "short_code":
+        generate_short_code(),
+        "created_at":
+        datetime.utcnow(),
+        "updated_at":
+        datetime.utcnow(),
+    }
+
+    result = (
+        links_collection.insert_one(
+            link_doc
+        )
+    )
+
+    link_doc["_id"] = str(
+        result.inserted_id
+    )
+
+    return link_doc
+
+# ======================================================
+# GET LINKS
+# ======================================================
+
+@app.get("/api/links")
+async def get_links(
+    current_user=Depends(
+        get_current_user
+    ),
+):
+
+    user_id = str(
+        current_user["_id"]
+    )
+
+    links = list(
+        links_collection.find(
+            {
+                "user_id": user_id
+            }
+        ).sort(
+            "created_at",
+            -1
+        )
+    )
+
+    for link in links:
+        link["_id"] = str(
+            link["_id"]
+        )
+
+    return links
+
+# ======================================================
+# UPDATE LINK
+# ======================================================
+
+@app.put("/api/links/{link_id}")
+async def update_link(
+    link_id: str,
+    link_data: LinkUpdate,
+    current_user=Depends(
+        get_current_user
+    ),
+):
+
+    user_id = str(
+        current_user["_id"]
+    )
+
+    existing_link = (
+        links_collection.find_one(
+            {
+                "_id": ObjectId(link_id),
+                "user_id": user_id,
+            }
+        )
+    )
+
+    if not existing_link:
+        raise HTTPException(
+            status_code=404,
+            detail="Link not found",
+        )
+
+    update_data = {
+        "title": link_data.title,
+        "url": link_data.url,
+        "category": link_data.category,
+        "tags": link_data.tags,
+        "description": link_data.description,
+        "color": link_data.color,
+        "updated_at": datetime.utcnow(),
+    }
+
+    links_collection.update_one(
+        {
+            "_id": ObjectId(link_id)
+        },
+        {
+            "$set": update_data
+        }
+    )
+
+    updated_link = (
+        links_collection.find_one(
+            {
+                "_id": ObjectId(link_id)
+            }
+        )
+    )
+
+    updated_link["_id"] = str(
+        updated_link["_id"]
+    )
+
+    return updated_link
+
+# ======================================================
+# DELETE LINK
+# ======================================================
+
+@app.delete(
+    "/api/links/{link_id}",
+    status_code=204,
+)
+async def delete_link(
+    link_id: str,
+    current_user=Depends(
+        get_current_user
+    ),
+):
+
+    user_id = str(
+        current_user["_id"]
+    )
+
+    result = (
+        links_collection.delete_one(
+            {
+                "_id":
+                ObjectId(link_id),
+
+                "user_id":
+                user_id,
+            }
+        )
+    )
+
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Link not found",
+        )
+
+    return None
 
 # ======================================================
 # HEALTH
@@ -762,10 +954,6 @@ async def reset_password(
 
 @app.get("/health")
 async def health_check():
-
-    logger.info(
-        "Health check endpoint accessed"
-    )
 
     return {
         "status": "ok"
@@ -777,10 +965,6 @@ async def health_check():
 
 @app.get("/")
 async def root():
-
-    logger.info(
-        "Root endpoint accessed"
-    )
 
     return {
         "message":
