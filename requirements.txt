@@ -4,7 +4,9 @@ gunicorn
 python-dotenv
 pymongo
 passlib[bcrypt]
+bcrypt
 python-jose[cryptography]
 email-validator
 python-multipart
 pydantic-settings
+dnspython
